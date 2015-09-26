@@ -80,7 +80,7 @@ img {
 <h2>Input Data</h2>
 <p>Data used in this project was gathered and used in the Activity Recognition of Weight Lifting Exercises [1] (WLE) study.</p>
 <div id="data-inspection" class="section level3">
-<h3>Data inspection</h3>
+<h3>Data Inspection</h3>
 <p>The original training set from the WLE study contains 19622 rows and 160 variables. The final test set contains 20 rows and 160 variables.</p>
 <p>The original training dataset has a large number of variables containing exactly 19216 either NA or 0 length characters. For these variables, the non NA or non 0 length values coincide with the “new_window” variable with value “yes”.<br />The WLE study used a sliding window method for feature extraction. Several rows of consecutive data samples were used to calculate these features. We have identified these variables as the features calculated in the WLE study.</p>
 </div>
@@ -90,8 +90,8 @@ img {
 <p>At the end of this cleaning process the dataset contains 54 variables, including the classification variable ‘classe’.</p>
 </div>
 </div>
-<div id="algorithm-selection-data-splicing-preprocessing-and-optimization" class="section level2">
-<h2>Algorithm Selection, Data Splicing, Preprocessing, and Optimization</h2>
+<div id="data-slicing-preprocessing-algorithm-and-optimization" class="section level2">
+<h2>Data Slicing, Preprocessing, Algorithm and Optimization</h2>
 <p>We have decided to use the Random Forests algorithm from the randomForest package. This algorithm applies to regression and classification. It is fast, one of the most accurate, and can handle thousands of input variables without variable deletion.</p>
 <p>On a first run of the algorithm, we have used the calculated importance of variables (importance) and the number of variables tried (mtry) at each split to decide which variables to select for our next runs.</p>
 <p>In the First Run we have split the data in 60%, 40% for the training and test sets. For the Final Run we have used 20% and 80% respectively.</p>
@@ -209,7 +209,7 @@ img {
 <tr class="odd">
 <td align="center">1.616</td>
 <td align="center">0.9989814</td>
-<td align="center">0.9566741</td>
+<td align="center">0.9565467</td>
 </tr>
 </tbody>
 </table>
@@ -243,7 +243,7 @@ img {
 </tr>
 </tbody>
 </table>
-<p>The final classifier took -121.952 seconds to train than the first classifier with a decrease of 0.0355512 classification accuracy in the test set, or an increase of 0.0435206 in the OOB (Out of Bag) error rate.</p>
+<p>The final classifier took -121.952 seconds to train than the first classifier with a decrease of 0.0356787 classification accuracy in the test set, or an increase of 0.0435206 in the OOB (Out of Bag) error rate.</p>
 <table>
 <thead>
 <tr class="header">
@@ -266,7 +266,7 @@ img {
 <td align="left">FinalClassifier</td>
 <td align="center">1.616</td>
 <td align="center">0.9989814</td>
-<td align="center">0.9566741</td>
+<td align="center">0.9565467</td>
 <td align="center">0.0532223</td>
 </tr>
 </tbody>
@@ -293,7 +293,7 @@ OOB and specific class error rates for the First and the Final classifiers.
 <tr class="odd">
 <td align="center">0.0532223</td>
 <td align="center">0.0473644</td>
-<td align="center">0.0433259</td>
+<td align="center">0.0434533</td>
 </tr>
 </tbody>
 </table>
