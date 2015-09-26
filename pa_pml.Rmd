@@ -50,7 +50,7 @@ training <- read.csv("./data/pml-training.csv", na.strings=c("","NA"))
 finalTesting <- read.csv("./data/pml-testing.csv")
 ```
 
-### Data inspection
+### Data Inspection
 
 ```{r dataDims}
 dTraining <- dim(training)
@@ -91,7 +91,7 @@ nrVars <- length(names(training))
 
 At the end of this cleaning process the dataset contains `r nrVars` variables, including the classification variable 'classe'.
 
-## Algorithm Selection, Data Splicing, Preprocessing, and Optimization
+## Data Slicing, Preprocessing, Algorithm and Optimization
 
 We have decided to use the Random Forests algorithm from the randomForest package. 
 This algorithm applies to regression and classification. It is fast, one of the most accurate, and can handle thousands of input variables without variable deletion.
