@@ -1,0 +1,391 @@
+---
+title: "Quantifying *How Well* An Activity Is Performed"
+author: "Mauro Melo"
+date: "September 26, 2015"
+output: html_document
+---
+
+```{r setoptions, include=TRUE, echo = FALSE, results= "none", warnings=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE, results = "none", warnings=FALSE, message=FALSE, fig.path='figures/')
+require(knitr)
+require(caret)
+require(randomForest)
+set.seed(1000)
+```
+
+## Summary
+Regularly an activity is quantified on how much of it is performed. Rarely it is quantified on how well it is performed. The objective of this project is to use the measurements taken from 6 participants while performing Barbell Lifts correctly and incorrectly and, from the recorded measurements try to determine if the exercise was performed correctly.  
+According to the results obtained, it is possible to determine if the exercise is performed correctly.  
+The correctness of the exercise out quickly classified and with relatively small amount of data.  
+It was possible to determine the correctness of the exercise in data not containing the identity of the participant. 
+
+## Question
+
+Can we use the quantitative measurements of the execution of the Barbell Lifts exercise to determine the correction of execution of the exercise?
+
+## Input Data
+
+Data used in this project was gathered and used in the Activity Recognition of Weight Lifting Exercises [1] (WLE) study.
+
+```{r getData}
+if(!dir.exists("./data")) {
+    dir.create("./data")
+}
+
+training.url <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing.url <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+if(!file.exists("./data/pml-training.csv")) 
+    download.file(training.url, "./data/pml-training.csv", method="curl")
+if(!file.exists("./data/pml-testing.csv")) 
+    download.file(testing.url, "./data/pml-testing.csv", method="curl")
+rm(training.url, testing.url)
+```
+
+
+```{r loadRawData}
+training <- read.csv("./data/pml-training.csv", na.strings=c("","NA"))
+finalTesting <- read.csv("./data/pml-testing.csv")
+```
+
+### Data inspection
+
+```{r dataDims}
+dTraining <- dim(training)
+dTesting <- dim(finalTesting)
+```
+
+The original training set from the WLE study contains `r dTraining[1]` rows and `r dTraining[2]` variables. The final test set contains `r dTesting[1]` rows and `r dTesting[2]` variables.  
+
+The original training dataset has a large number of variables containing exactly 19216 either NA or 0 length characters.
+For these variables, the non NA or non 0 length values coincide with the "new_window" variable with value "yes".  
+The WLE study used a sliding window method for feature extraction. Several rows of consecutive data samples were used to calculate these features.
+We have identified these variables as the features calculated in the WLE study.
+
+### Data Cleaning
+In this study we are classifying on a single row of measurements, not on multiple rows collected over a time window as in the WLE study.  
+We have decided to remove the bookkeeping variables used to provide the time windows, variables 1 and 3 through 7, and the associated calculated features from both the original training and the final test sets.  
+To remove the calculated features variables we have identified the variables on the original training set containing more than 19000 NA.
+
+
+```{r dataCleaning}
+# Remove bookeeping variables
+training <- training[,-c(1, 3:7)]
+# Remove original feature variables
+variablesNA <- function(dataframe) unlist(lapply(dataframe, 
+                                                 function(x) sum(is.na(x))))
+featureVars <- variablesNA(training)
+training <- training[, which(featureVars<19000)]
+rm(variablesNA, featureVars)
+training$classe <- as.factor(training$classe)
+# Remove from finalTesting set
+finalTesting <- finalTesting[, names(training)[-length(names(training))]]
+```
+
+
+```{r numVars}
+nrVars <- length(names(training))
+```
+
+At the end of this cleaning process the dataset contains `r nrVars` variables, including the classification variable 'classe'.
+
+## Algorithm Selection, Data Splicing, Preprocessing, and Optimization
+
+We have decided to use the Random Forests algorithm from the randomForest package. 
+This algorithm applies to regression and classification. It is fast, one of the most accurate, and can handle thousands of input variables without variable deletion.
+
+On a first run of the algorithm, we have used the calculated importance of variables (importance) and the number of variables tried (mtry) at each split to decide which variables to select for our next runs.
+
+In the First Run we have split the data in 60%, 40% for the training and test sets. For the Final Run we have used 20% and 80% respectively.
+
+At each data slicing modes for each run we have performed normalization of variables.
+
+At each run we would either reduce the amount of training data or reduce the number of trees (ntrees), or both.
+
+### First Run
+
+In this run we have used all the `r nrVars-1` measurements variables remaining in the cleaned sets to select the important variables to use in the subsequent runs. 
+
+```{r remNrVars}
+rm(nrVars)
+```
+
+```{r dataSplit}
+split <- function(data, trainSize) {
+    inTrain <- createDataPartition(y=data$classe, p=trainSize, list=FALSE)
+    train <- data[inTrain,]
+    test <- data[-inTrain,]
+    list(train,test)
+}
+```
+
+```{r firstSplitSizes}
+splits <- split(training, 0.6)
+train <- splits[[1]]
+test <- splits[[2]]
+```
+
+```{r printFirstSplits}
+values <- data.frame(Training='60%', Test='40%')
+kable(values, format='markdown', row.names=FALSE, align='c')
+rm(values)
+```
+
+
+```{r firstPrepProcess}
+classVar <- length(names(train))
+preObj <- preProcess(train[,-c(1, classVar)], method=c("center","scale"))
+train[,c(2:(classVar-1))] <- predict(preObj,train[,-c(1, classVar)])
+test[,c(2:(classVar-1))] <- predict(preObj,test[,-c(1, classVar)])
+preFinalTesting <- finalTesting
+preFinalTesting[,c(2:(classVar-1))] <- 
+    predict(preObj, preFinalTesting[,-c(1, classVar)])
+rm(preObj)
+```
+
+
+#### First Algorithm
+
+In this first run we have used the default parameters for the algorithm.
+
+```{r firstClassifier, cache=TRUE}
+firstElapsedTime <- system.time(modFit <- 
+                               randomForest(classe ~.,  data=train))[3]
+modFit
+```
+
+```{r evaluateModel}
+evaluateModel <- function(model, trainSet, testSet, elapsed=0) {
+    trainPreds <- predict(model, trainSet)
+    testPreds <- predict(model, testSet)
+
+    accTrain <- confusionMatrix(trainPreds, trainSet$classe)
+    accTest <- confusionMatrix(testPreds, testSet$classe)
+
+    results <- cbind(TrainingTime=elapsed,
+                     TrainAccuracy=accTrain$overall[1],
+                     TestAccuracy=accTest$overall[1])
+
+    results
+}
+```
+
+```{r modFitResults}
+firstResults <- evaluateModel(modFit, train, test, firstElapsedTime)
+```
+
+```{r printFirstResults}
+kable(firstResults, format='markdown', row.names=FALSE, align='c')
+```
+
+**Given the results on the test set for this classifier, we have used this model to classify the final values submitted, which were all correct.**  
+  
+
+#### Selection of Final Variables
+
+The top `r modFit$mtry` most important variables identified in the First Run and used to produce the subsequent and the final classifiers were:
+
+```{r mostImpVars}
+impVars <- as.data.frame(modFit$importance, scale=TRUE)
+impVars$names <- row.names(impVars)
+impVars <- impVars[order(-impVars[,1]), ]
+numVarsTried <- modFit$mtry
+impVars <- impVars[1:numVarsTried,2]
+impVars
+```
+
+### Final Classifier
+
+As a comparison and to show the optimization possibilities of the first classifier. As optimization constraint we used the requirement of maintaining the capability to correctly classify the final test samples.  
+
+```{r subsetImportantVars}
+# The important variables for prediction
+reducedTraining <- training[,impVars]
+reducedTraining <- cbind(reducedTraining, training[length(names(training))])
+classVar <- length(names(reducedTraining))
+reducedFinalTesting <- finalTesting[names(reducedTraining)[-classVar]]
+rm(impVars)
+```
+
+#### Final Data Slicing
+
+We have sequentially reduced the initial 60% of the data available for training by 10% decrements until the complete accurate classification in the final test data was lost. We have settled with 20% of the total initial training data to train the classifier and still get complete classification accuracy.
+
+```{r finalSplitSizes}
+splits <- split(reducedTraining, 0.2)
+train <- splits[[1]]
+test <- splits[[2]]
+```
+
+```{r printFinalSplits}
+values <- data.frame(Training='20%', Test='80%')
+kable(values, format='markdown', row.names=FALSE, align='c')
+rm(values)
+```
+
+```{r finalPrepProcess}
+# store to perform oos cv estimates
+cvReducedTraining <- train
+cvReducedTest <- test
+
+classVar <- length(names(train))
+preObj <- preProcess(train[,-classVar], method=c("center","scale"))
+train[,-classVar] <- predict(preObj,train[,-classVar])
+test[,-classVar] <- predict(preObj,test[,-classVar])
+reducedPreFinalTesting <- predict(preObj, reducedFinalTesting)
+rm(preObj)
+```
+
+#### Final Algorithm
+
+We have tentatively reduced the number of trees generated and settled with 200 trees.
+
+```{r fitFinalModel, cache=TRUE}
+finalElapsedTime <- system.time(finalModFit <- 
+                               randomForest(classe ~., data=train, 
+                                            ntree=200))[3]
+finalModFit
+```
+
+```{r finalModResults}
+finalResults <- evaluateModel(finalModFit, train, test, finalElapsedTime)
+```
+
+```{r printFinalResults}
+kable(finalResults, format='markdown', row.names=FALSE, align='c')
+```
+
+## Evaluation
+
+Using `r length(names(preFinalTesting))` variables, `r modFit$ntree` trees and 60% of data on to train the first classifier against `r length(names(reducedPreFinalTesting))` variables, `r finalModFit$ntree` trees and 20% of data to train the final had a significant impact on the training time, with a small reduction of accuracy on the test set.
+
+```{r trainConfigs}
+trainConfigs <- data.frame(
+    NumVariables=c(length(names(preFinalTesting)), 
+                   length(names(reducedPreFinalTesting))),
+    TrainingData=c('60%', '20%'), 
+    NumberTrees=c(modFit$ntree, finalModFit$ntree))
+rownames(trainConfigs) <- c('FirstClassifier', 'FinalClassifier')
+```
+
+```{r printConfigs}
+kable(trainConfigs, format='markdown', align='c')
+```
+
+The final classifier took `r finalElapsedTime - firstElapsedTime` seconds to train than the first classifier with a decrease of `r firstResults[3] - finalResults[3]` classification accuracy in the test set, or an increase of `r mean(finalModFit$err.rate[,1] - mean(modFit$err.rate[,1]))` in the OOB (Out of Bag) error rate.
+
+```{r compareResults}
+compResults <- rbind(firstResults, finalResults)
+rownames(compResults) <- c('FirstClassifier', 'FinalClassifier')
+oobErrRates <- data.frame(OOBErrRates=c(mean(modFit$err.rate[,1]), 
+                                    mean(finalModFit$err.rate[,1])))
+rownames(oobErrRates) <- NULL
+compResults <- cbind(compResults, oobErrRates)
+```
+
+```{r printComparedResults}
+kable(compResults, format='markdown', align='c')
+```
+
+```{r figCaption}
+knit_hooks$set(htmlcap = function(before, options, envir) {
+    if(!before) {
+        paste('<p class="caption">',options$htmlcap,"</p>",sep="")
+        }
+    }
+    )
+```
+
+```{r errorPlots, fig.align='center', htmlcap="OOB and specific class error rates for the First and the Final classifiers."}
+par(mfrow=c(1,2))
+plot(modFit, main='First Classifier')
+legend("topright", legend=colnames(modFit$err.rate), 
+       col=c(1:length(names(modFit$err.rate))),
+       cex=0.8, fill=c(1:length(colnames(modFit$err.rate))))
+plot(finalModFit, main='Final Classifier')
+legend("topright", legend=colnames(finalModFit$err.rate), 
+       col=c(1:length(colnames(finalModFit$err.rate))), 
+       cex=0.8, fill=c(1:length(colnames(modFit$err.rate))))
+```
+
+### Out of Sample Error Rate Estimation Using Cross-validation
+
+Random Forests do not need cross-validation or a separate test set to get an unbiased estimate of the out of sample error.[2]. In Random forests this estimate is provided by the OOB error estimate.
+
+```{r createKFolds}
+numFolds <- 5
+inTrainSplits <- createFolds(1:nrow(cvReducedTraining), k=numFolds, 
+                           returnTrain=TRUE, list=TRUE)
+```
+
+```{r getCVResults}
+cvResults <- NULL
+
+for(fold in 1:numFolds) {
+    train <- cvReducedTraining[inTrainSplits[[fold]],]
+    test <- cvReducedTraining[-inTrainSplits[[fold]],]
+    
+    classVar <- length(names(train))
+    preObj <- preProcess(train[,-classVar], method=c("center","scale"))
+    train[,-classVar] <- predict(preObj,train[,-classVar])
+    test[,-classVar] <- predict(preObj,test[,-classVar])
+    rm(preObj)
+    
+    cvModFit <-randomForest(classe ~.,  data=train, ntree=200)
+    
+    tmp <- cbind(predict(cvModFit, test), test$classe)
+    cvResults <- rbind(cvResults, tmp)
+}
+rm(cvModFit)
+
+colnames(cvResults) <- c("Predicted", "Actual")
+cvResults <- as.data.frame(cvResults)
+```
+
+As a requirement for this project we have calculated the Out of Sample (OOS) Error estimate using k=`r numFolds` k-fold cross-validation.
+
+```{r calculateErrRate}
+estAcc <- sum(cvResults$Predicted==cvResults$Actual)/nrow(cvResults)
+oosEstErr <- 1-estAcc
+```
+
+**The Out of Sample error estimate using cross-validation was `r oosEstErr`.**
+
+As displayed in the table below, the error estimates are very similar.  
+
+```{r printCompareErrors}
+errors <- data.frame(oobErrRates[2,1], oosEstErr, 1-finalResults[3])
+colnames(errors) <- c('OutOfBag', 'OutOfSampleCV', 'TestSetClassification')
+kable(errors, format='markdown', row.names=FALSE, align='c')
+```
+
+## Conclusion
+
+It is possible to determine the correctness of the Barbell Lifts exercise using the quantitative measurements captured while performing the exercise.  
+  
+It is possible to determine the correctness using only one sample of measurements and possibly determine for indiferentiated individuals.  
+The current project uses data from only 6 participants.
+
+A classifier capable to determine the correctness of the exercise can be trained in a few seconds while performing the exercise, presenting very accurate results.  
+  
+  
+## References
+
+[1] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.  
+[2] Random Forests Leo Breiman and Adele Cutler, 
+https://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr
+
+
+
+
+
+
+
+
+
+
+
+
+
